@@ -1,11 +1,16 @@
 package com.winnersfilms.statuspro
 
+import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -32,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,9 +53,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 private val Ink = Color(0xFF080D18)
 private val Panel = Color(0xFF121C2D)
@@ -233,216 +245,3 @@ private fun MediaTile(
         Column(
             modifier = Modifier.fillMaxSize().padding(15.dp),
             verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Box(
-                modifier = Modifier.size(48.dp).background(Blue.copy(alpha = 0.13f), RoundedCornerShape(15.dp)),
-                contentAlignment = Alignment.Center
-            ) { icon() }
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text(subtitle, color = Muted, fontSize = 10.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SmallFeature(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier) {
-    Surface(modifier = modifier, color = Panel, shape = RoundedCornerShape(15.dp)) {
-        Row(
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 15.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(icon, null, tint = Blue, modifier = Modifier.size(19.dp))
-            Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Écran Photo
-// ---------------------------------------------------------------------------
-
-private data class PhotoInfo(
-    val width: Int,
-    val height: Int,
-    val mime: String,
-    val sizeBytes: Long,
-    val preview: ImageBitmap
-)
-
-@Composable
-private fun PhotoScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    var uri by remember { mutableStateOf<Uri?>(null) }
-    var info by remember { mutableStateOf<PhotoInfo?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var loading by remember { mutableStateOf(false) }
-
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { picked ->
-        if (picked != null) uri = picked
-    }
-
-    LaunchedEffect(uri) {
-        val selected = uri ?: return@LaunchedEffect
-        loading = true
-        error = null
-        info = null
-        try {
-            info = withContext(Dispatchers.IO) { loadPhotoInfo(context, selected) }
-        } catch (e: OutOfMemoryError) {
-            error = "Image trop lourde pour la mémoire de l'appareil."
-        } catch (e: Exception) {
-            error = e.message ?: "Impossible de lire cette image."
-        }
-        loading = false
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour", tint = Color.White)
-            }
-            Spacer(Modifier.width(6.dp))
-            Text("Photo HD", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        }
-
-        Button(
-            onClick = {
-                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            },
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = Ink)
-        ) {
-            Text(
-                if (uri == null) "Choisir une photo" else "Choisir une autre photo",
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
-            )
-        }
-
-        if (loading) {
-            Text("Lecture de la photo...", color = Muted, fontSize = 14.sp)
-        }
-
-        error?.let {
-            Text(it, color = Color(0xFFFF8A80), fontSize = 14.sp)
-        }
-
-        info?.let { photo ->
-            Image(
-                bitmap = photo.preview,
-                contentDescription = "Aperçu de la photo",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp)),
-                contentScale = ContentScale.FillWidth
-            )
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Panel),
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    InfoRow("Dimensions", "${photo.width} × ${photo.height} px")
-                    InfoRow("Format", photo.mime.substringAfter("/").uppercase())
-                    InfoRow("Poids", formatSize(photo.sizeBytes))
-                }
-            }
-            Text(
-                "Aperçu réduit pour l'affichage. Le fichier original n'est jamais modifié.",
-                color = Muted,
-                fontSize = 12.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun InfoRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Muted, fontSize = 14.sp)
-        Text(value, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-private fun formatSize(bytes: Long): String {
-    if (bytes <= 0) return "inconnu"
-    val mo = bytes / (1024.0 * 1024.0)
-    return if (mo >= 1.0) {
-        String.format(Locale.getDefault(), "%.2f Mo", mo)
-    } else {
-        String.format(Locale.getDefault(), "%.0f Ko", bytes / 1024.0)
-    }
-}
-
-private fun loadPhotoInfo(context: Context, uri: Uri): PhotoInfo {
-    val resolver = context.contentResolver
-
-    // 1. Dimensions et format, sans charger l'image entière
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-    val rawWidth = bounds.outWidth
-    val rawHeight = bounds.outHeight
-    if (rawWidth <= 0 || rawHeight <= 0) {
-        throw IllegalStateException("Format d'image non pris en charge.")
-    }
-    val mime = bounds.outMimeType ?: "image/inconnu"
-
-    // 2. Orientation EXIF
-    val orientation = resolver.openInputStream(uri)?.use { stream ->
-        ExifInterface(stream).getAttributeInt(
-            ExifInterface.TAG_ORIENTATION,
-            ExifInterface.ORIENTATION_NORMAL
-        )
-    } ?: ExifInterface.ORIENTATION_NORMAL
-    val degrees = when (orientation) {
-        ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-        else -> 0f
-    }
-
-    // 3. Aperçu réduit (maximum environ 1600 px) pour économiser la mémoire
-    var sample = 1
-    while (max(rawWidth, rawHeight) / sample > 1600) sample *= 2
-    val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sample }
-    var bitmap = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) }
-        ?: throw IllegalStateException("Impossible de lire cette image.")
-
-    if (degrees != 0f) {
-        val matrix = Matrix().apply { postRotate(degrees) }
-        bitmap = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-    }
-
-    // 4. Poids du fichier
-    var size = 0L
-    resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-        if (cursor.moveToFirst()) {
-            val index = cursor.getColumnIndex(OpenableColumns.SIZE)
-            if (index >= 0 && !cursor.isNull(index)) size = cursor.getLong(index)
-        }
-    }
-
-    val swapped = degrees == 90f || degrees == 270f
-    return PhotoInfo(
-        width = if (swapped) rawHeight else rawWidth,
-        height = if (swapped) rawWidth else rawHeight,
-        mime = mime,
-        sizeBytes = size,
-        preview = bitmap.asImageBitmap()
-    )
-}
