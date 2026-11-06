@@ -245,3 +245,287 @@ private fun MediaTile(
         Column(
             modifier = Modifier.fillMaxSize().padding(15.dp),
             verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier.size(48.dp).background(Blue.copy(alpha = 0.13f), RoundedCornerShape(15.dp)),
+                contentAlignment = Alignment.Center
+            ) { icon() }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(subtitle, color = Muted, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SmallFeature(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier) {
+    Surface(modifier = modifier, color = Panel, shape = RoundedCornerShape(15.dp)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(icon, null, tint = Blue, modifier = Modifier.size(19.dp))
+            Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Écran Photo
+// ---------------------------------------------------------------------------
+
+private data class PhotoInfo(
+    val width: Int,
+    val height: Int,
+    val mime: String,
+    val sizeBytes: Long,
+    val preview: ImageBitmap
+)
+
+private data class ExportResult(
+    val width: Int,
+    val height: Int,
+    val sizeBytes: Long,
+    val where: String
+)
+
+@Composable
+private fun PhotoScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var uri by remember { mutableStateOf<Uri?>(null) }
+    var info by remember { mutableStateOf<PhotoInfo?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+
+    var quality by remember { mutableStateOf(95f) }
+    var maxSide by remember { mutableStateOf(0) }
+    var exporting by remember { mutableStateOf(false) }
+    var exportResult by remember { mutableStateOf<ExportResult?>(null) }
+    var exportError by remember { mutableStateOf<String?>(null) }
+
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { picked ->
+        if (picked != null) {
+            uri = picked
+            exportResult = null
+            exportError = null
+        }
+    }
+
+    LaunchedEffect(uri) {
+        val selected = uri ?: return@LaunchedEffect
+        loading = true
+        error = null
+        info = null
+        try {
+            info = withContext(Dispatchers.IO) { loadPhotoInfo(context, selected) }
+        } catch (e: OutOfMemoryError) {
+            error = "Image trop lourde pour la mémoire de l'appareil."
+        } catch (e: Exception) {
+            error = e.message ?: "Impossible de lire cette image."
+        }
+        loading = false
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 22.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour", tint = Color.White)
+            }
+            Spacer(Modifier.width(6.dp))
+            Text("Photo HD", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        }
+
+        Button(
+            onClick = {
+                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = Ink)
+        ) {
+            Text(
+                if (uri == null) "Choisir une photo" else "Choisir une autre photo",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
+        }
+
+        if (loading) {
+            Text("Lecture de la photo...", color = Muted, fontSize = 14.sp)
+        }
+
+        error?.let {
+            Text(it, color = Color(0xFFFF8A80), fontSize = 14.sp)
+        }
+
+        info?.let { photo ->
+            Image(
+                bitmap = photo.preview,
+                contentDescription = "Aperçu de la photo",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp)),
+                contentScale = ContentScale.FillWidth
+            )
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    InfoRow("Dimensions", "${photo.width} × ${photo.height} px")
+                    InfoRow("Format", photo.mime.substringAfter("/").uppercase())
+                    InfoRow("Poids", formatSize(photo.sizeBytes))
+                }
+            }
+
+            // Réglages d'export
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Réglages d'export", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Qualité JPEG", color = Muted, fontSize = 14.sp)
+                        Text("${quality.roundToInt()}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Slider(
+                        value = quality,
+                        onValueChange = { quality = it },
+                        valueRange = 70f..100f,
+                        steps = 29,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Blue,
+                            activeTrackColor = Blue
+                        )
+                    )
+
+                    Text("Résolution", color = Muted, fontSize = 14.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SizeOption("Originale", maxSide == 0, Modifier.weight(1f)) { maxSide = 0 }
+                        SizeOption("2560 px", maxSide == 2560, Modifier.weight(1f)) { maxSide = 2560 }
+                        SizeOption("1920 px", maxSide == 1920, Modifier.weight(1f)) { maxSide = 1920 }
+                    }
+                    Text(
+                        "Le format d'origine est conservé : aucune bande, aucun recadrage.",
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            Button(
+                onClick = {
+                    val selected = uri ?: return@Button
+                    scope.launch {
+                        exporting = true
+                        exportResult = null
+                        exportError = null
+                        try {
+                            exportResult = withContext(Dispatchers.IO) {
+                                exportPhoto(context, selected, quality.roundToInt(), maxSide)
+                            }
+                        } catch (e: OutOfMemoryError) {
+                            exportError = "Mémoire insuffisante. Essayez une résolution plus basse."
+                        } catch (e: Exception) {
+                            exportError = e.message ?: "Échec de l'export."
+                        }
+                        exporting = false
+                    }
+                },
+                enabled = !exporting,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = Ink)
+            ) {
+                Text(
+                    if (exporting) "Export en cours..." else "Exporter",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+            }
+
+            exportError?.let {
+                Text(it, color = Color(0xFFFF8A80), fontSize = 14.sp)
+            }
+
+            exportResult?.let { result ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF12334A)),
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Export terminé", color = Color(0xFF72D5FF), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        InfoRow("Dimensions", "${result.width} × ${result.height} px")
+                        InfoRow("Poids", formatSize(result.sizeBytes))
+                        Text(result.where, color = Muted, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            Text(
+                "Aperçu réduit pour l'affichage. Le fichier original n'est jamais modifié.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun SizeOption(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) Blue else Color(0xFF1B2A40)
+        )
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                label,
+                color = if (selected) Ink else Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = Muted, fontSize = 14.sp)
+        Text(value, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
