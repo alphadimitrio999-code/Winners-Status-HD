@@ -144,8 +144,7 @@ private fun HeroCard() {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("VOTRE CONTENU.
-VOTRE QUALITÉ.", color = Color.White, fontSize = 25.sp, lineHeight = 31.sp,
+            Text("VOTRE CONTENU.\nVOTRE QUALITÉ.", color = Color.White, fontSize = 25.sp, lineHeight = 31.sp,
                 fontWeight = FontWeight.ExtraBold)
             Text(
                 "Préparez vos photos et vidéos pour le partage, avec un contrôle précis de la qualité.",
